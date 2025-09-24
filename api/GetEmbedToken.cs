@@ -26,12 +26,12 @@ namespace HaloPowerBiEmbed.Api
 
             try
             {
-                // Get credentials from Application Settings (Environment Variables)
-                string tenantId = Environment.GetEnvironmentVariable("PowerBi:TenantId");
-                string clientId = Environment.GetEnvironmentVariable("PowerBi:ClientId");
-                string clientSecret = Environment.GetEnvironmentVariable("PowerBi:ClientSecret");
-                string workspaceId = Environment.GetEnvironmentVariable("PowerBi:WorkspaceId");
-                string reportId = Environment.GetEnvironmentVariable("PowerBi:ReportId");
+                // Get credentials using the EXACT names from Azure App Settings
+                string tenantId = Environment.GetEnvironmentVariable("PowerBi__TenantId");
+                string clientId = Environment.GetEnvironmentVariable("PowerBi__ClientId");
+                string clientSecret = Environment.GetEnvironmentVariable("PowerBi__ClientSecret");
+                string workspaceId = Environment.GetEnvironmentVariable("PowerBi__WorkspaceId");
+                string reportId = Environment.GetEnvironmentVariable("PowerBi__ReportId");
 
                 // Authenticate with Azure AD
                 var authorityUrl = $"https://login.microsoftonline.com/{tenantId}";

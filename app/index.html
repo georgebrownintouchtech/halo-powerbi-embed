@@ -14,7 +14,7 @@
             font-family: sans-serif;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items-center;
             color: #666;
             box-sizing: border-box;
         }
@@ -47,7 +47,7 @@
                     id: embedDetails.reportId,
                     embedUrl: embedDetails.embedUrl,
                     accessToken: embedDetails.embedToken,
-                    tokenType: powerbi.models.TokenType.Embed, // This line is now corrected
+                    tokenType: powerbi.models.TokenType.Embed,
                     settings: {
                         panes: {
                             filters: { expanded: false, visible: true },
@@ -65,7 +65,8 @@
             }
         }
         
-        document.addEventListener('DOMContentLoaded', embedReport);
+        // Use the 'load' event to ensure all scripts are ready before running.
+        window.addEventListener('load', embedReport);
     </script>
 </body>
 </html>

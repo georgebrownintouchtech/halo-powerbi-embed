@@ -47,7 +47,7 @@
                     id: embedDetails.reportId,
                     embedUrl: embedDetails.embedUrl,
                     accessToken: embedDetails.embedToken,
-                    tokenType: powerbi.models.TokenType.Embed,
+                    tokenType: powerbi.TokenType.Embed, // This line is now corrected
                     settings: {
                         panes: {
                             filters: { expanded: false, visible: true },

@@ -41,16 +41,13 @@
                 }
                 const embedDetails = await response.json();
 
-                // Get the models object from the PBI client library.
-                const models = window['powerbi-client'].models;
-
                 // Create the configuration object for embedding.
                 const embedConfig = {
                     type: 'report',
                     id: embedDetails.reportId,
                     embedUrl: embedDetails.embedUrl,
                     accessToken: embedDetails.embedToken,
-                    tokenType: models.TokenType.Embed, // This line is now corrected
+                    tokenType: powerbi.models.TokenType.Embed, // This line is now corrected
                     settings: {
                         panes: {
                             filters: { expanded: false, visible: true },

@@ -26,7 +26,7 @@ namespace HaloPowerBiEmbed.Api
 
             try
             {
-                // Get credentials using the EXACT names from Azure App Settings
+                // Get credentials using the EXACT names from Azure App Settings (with double underscores)
                 string tenantId = Environment.GetEnvironmentVariable("PowerBi__TenantId");
                 string clientId = Environment.GetEnvironmentVariable("PowerBi__ClientId");
                 string clientSecret = Environment.GetEnvironmentVariable("PowerBi__ClientSecret");

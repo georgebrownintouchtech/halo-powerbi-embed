@@ -1,74 +1,95 @@
+using System;
+using System.Net;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Azure.Identity;
+using Azure.Core;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.PowerBI.Api;
 using Microsoft.PowerBI.Api.Models;
-using Microsoft.Identity.Client;
-using System.Net;
-using System;
-using System.Threading.Tasks;
+using Microsoft.Rest;
 
 namespace HaloPowerBiEmbed.Api
 {
     public class GetEmbedToken
     {
-        private readonly ILogger _logger;
+        private readonly ILogger<GetEmbedToken> _logger;
+        private readonly PowerBiOptions _powerBiOptions;
+        private const string PowerBiScope = "https://analysis.windows.net/powerbi/api/.default";
 
-        public GetEmbedToken(ILoggerFactory loggerFactory)
+        public GetEmbedToken(IOptions<PowerBiOptions> powerBiOptions, ILogger<GetEmbedToken> logger)
         {
-            _logger = loggerFactory.CreateLogger<GetEmbedToken>();
+            _logger = logger;
+            _powerBiOptions = powerBiOptions.Value;
         }
 
         [Function("GetEmbedToken")]
-        public async Task<HttpResponseData> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData req)
+        public async Task<HttpResponseData> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData req)
         {
-            _logger.LogInformation("C# HTTP trigger function processed a request to get Power BI embed token.");
-
             try
             {
-                // Get credentials using the EXACT names from Azure App Settings (with double underscores)
-                string tenantId = Environment.GetEnvironmentVariable("PowerBi__TenantId");
-                string clientId = Environment.GetEnvironmentVariable("PowerBi__ClientId");
-                string clientSecret = Environment.GetEnvironmentVariable("PowerBi__ClientSecret");
-                string workspaceId = Environment.GetEnvironmentVariable("PowerBi__WorkspaceId");
-                string reportId = Environment.GetEnvironmentVariable("PowerBi__ReportId");
+                // Get the user identity from the query string for RLS.
+                // In a real app, you'd get this from a validated JWT or session cookie.
+                string? rlsUser = req.Query["userId"];
+                if (string.IsNullOrWhiteSpace(rlsUser) || rlsUser.Equals("null", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("Request received without a 'userId' query parameter for RLS.");
+                    var badReqResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badReqResponse.WriteStringAsync("A 'userId' query parameter is required.");
+                    return badReqResponse;
+                }
 
                 // Authenticate with Azure AD
-                var authorityUrl = $"https://login.microsoftonline.com/{tenantId}";
-                var app = ConfidentialClientApplicationBuilder.Create(clientId)
-                    .WithClientSecret(clientSecret)
-                    .WithAuthority(new Uri(authorityUrl))
-                    .Build();
+                var credential = new ClientSecretCredential(_powerBiOptions.TenantId, _powerBiOptions.ClientId, _powerBiOptions.ClientSecret);
+                var accessToken = await credential.GetTokenAsync(new TokenRequestContext(new[] { PowerBiScope }));
+                var tokenCredentials = new TokenCredentials(accessToken.Token, "Bearer");
 
-                var scopes = new[] { "https://analysis.windows.net/powerbi/api/.default" };
-                var authResult = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+                // Instantiate the Power BI client, providing both the API endpoint and the credential.
+                using var client = new PowerBIClient(tokenCredentials) { BaseUri = new Uri("https://api.powerbi.com/") };
+                // Retrieve report
+                var reportResponse = await client.Reports.GetReportInGroupAsync(Guid.Parse(_powerBiOptions.WorkspaceId), Guid.Parse(_powerBiOptions.ReportId));
+                var report = reportResponse;
 
-                // Connect to Power BI
-                var powerBiClient = new PowerBIClient(new Uri("https://api.powerbi.com/"), new Microsoft.Rest.TokenCredentials(authResult.AccessToken, "Bearer"));
-
-                // Get the report from the workspace
-                var report = await powerBiClient.Reports.GetReportInGroupAsync(new Guid(workspaceId), new Guid(reportId));
-
-                // Generate the Embed Token for "View" access
-                var generateTokenRequestParameters = new GenerateTokenRequest(accessLevel: "View");
-                var embedToken = await powerBiClient.Reports.GenerateTokenInGroupAsync(new Guid(workspaceId), new Guid(reportId), generateTokenRequestParameters);
-
-                // Build the response object for the frontend
-                var responsePayload = new
+                // Define the RLS identity. This assumes you have a role named 'UserRole' in your PBIX file.
+                // For this SDK version, EffectiveIdentity uses a parameterless constructor and properties are set.
+                var rlsIdentity = new EffectiveIdentity
                 {
-                    reportId = report.Id.ToString(),
-                    embedUrl = report.EmbedUrl,
-                    embedToken = embedToken.Token
+                    Username = rlsUser,
+                    Roles = { "UserRole" },
+                    Datasets = { report.DatasetId }
                 };
-                
+
+                var tokenRequest = new GenerateTokenRequestV2
+                {
+                    Reports = { new GenerateTokenRequestV2Report(report.Id) },
+                    Datasets = { new GenerateTokenRequestV2Dataset(report.DatasetId) },
+                    TargetWorkspaces = { new GenerateTokenRequestV2TargetWorkspace(Guid.Parse(_powerBiOptions.WorkspaceId)) },
+                    Identities = { rlsIdentity }
+                };
+                // Generate embed token
+                var embedTokenResponse = await client.EmbedToken.GenerateTokenAsync(tokenRequest);
+                var embedToken = embedTokenResponse;
+
+                // Return JSON
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(responsePayload);
+                await response.WriteAsJsonAsync(new
+                {
+                    reportId = report.Id,
+                    embedUrl = report.EmbedUrl,
+                    embedToken = embedToken.Token,
+                });
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to generate Power BI embed token.");
-                return req.CreateResponse(HttpStatusCode.InternalServerError);
+                _logger.LogError(ex, "Error generating embed token");
+                var error = req.CreateResponse(HttpStatusCode.InternalServerError); // Don't leak exception details to the client
+                await error.WriteStringAsync("An error occurred while processing your request.");
+                return error;
             }
         }
     }

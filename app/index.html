@@ -28,11 +28,24 @@
     <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.22.1/dist/powerbi.min.js"></script>
 
     <script>
-        const backendApiUrl = '/api/GetEmbedToken';
+        // Get a reference to the container and the Power BI client library objects.
         const reportContainer = document.getElementById('reportContainer');
+        const models = window['powerbi-models'];
+        const powerbi = window.powerbi;
 
         async function embedReport() {
             try {
+                // Get the userId from the URL query string (e.g., ?userId=ClientA)
+                const urlParams = new URLSearchParams(window.location.search);
+                const userId = urlParams.get('userId');
+                
+                // Validate that a userId was provided.
+                if (!userId || userId.toLowerCase() === 'null') {
+                    throw new Error("No 'userId' was provided in the URL. Please access this page with a query string like '?userId=YourClientID'.");
+                }
+
+                const backendApiUrl = `/api/GetEmbedToken?userId=${encodeURIComponent(userId)}`;
+
                 // Get embed details from your backend.
                 const response = await fetch(backendApiUrl);
                 if (!response.ok) {
@@ -47,7 +60,8 @@
                     id: embedDetails.reportId,
                     embedUrl: embedDetails.embedUrl,
                     accessToken: embedDetails.embedToken,
-                    // The 'tokenType' property has been removed as it's inferred from the token type.
+                    // Use 'models.TokenType.Embed' for "App Owns Data" scenarios.
+                    tokenType: models.TokenType.Embed,
                     settings: {
                         panes: {
                             filters: { expanded: false, visible: true },

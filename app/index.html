@@ -35,18 +35,8 @@
 
         async function embedReport() {
             try {
-                // Get the userId from the URL query string (e.g., ?userId=ClientA)
-                const urlParams = new URLSearchParams(window.location.search);
-                const userId = urlParams.get('userId');
-                
-                // Validate that a userId was provided.
-                if (!userId || userId.toLowerCase() === 'null') {
-                    throw new Error("No 'userId' was provided in the URL. Please access this page with a query string like '?userId=YourClientID'.");
-                }
-
-                const backendApiUrl = `/api/GetEmbedToken?userId=${encodeURIComponent(userId)}`;
-
                 // Get embed details from your backend.
+                const backendApiUrl = `/api/GetEmbedToken`;
                 const response = await fetch(backendApiUrl);
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -69,6 +59,9 @@
                         }
                     }
                 };
+
+                // Clear the "Loading Report..." message before embedding.
+                reportContainer.innerHTML = '';
 
                 // Embed the report.
                 powerbi.embed(reportContainer, embedConfig);

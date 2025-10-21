@@ -32,17 +32,6 @@ namespace HaloPowerBiEmbed.Api
         {
             try
             {
-                // Get the user identity from the query string for RLS.
-                // In a real app, you'd get this from a validated JWT or session cookie.
-                string? rlsUser = req.Query["userId"];
-                if (string.IsNullOrWhiteSpace(rlsUser) || rlsUser.Equals("null", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("Request received without a 'userId' query parameter for RLS.");
-                    var badReqResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReqResponse.WriteStringAsync("A 'userId' query parameter is required.");
-                    return badReqResponse;
-                }
-
                 // Authenticate with Azure AD
                 var credential = new ClientSecretCredential(_powerBiOptions.TenantId, _powerBiOptions.ClientId, _powerBiOptions.ClientSecret);
                 var accessToken = await credential.GetTokenAsync(new TokenRequestContext(new[] { PowerBiScope }));
@@ -54,21 +43,12 @@ namespace HaloPowerBiEmbed.Api
                 var reportResponse = await client.Reports.GetReportInGroupAsync(Guid.Parse(_powerBiOptions.WorkspaceId), Guid.Parse(_powerBiOptions.ReportId));
                 var report = reportResponse;
 
-                // Define the RLS identity. This assumes you have a role named 'UserRole' in your PBIX file.
-                // For this SDK version, EffectiveIdentity uses a parameterless constructor and properties are set.
-                var rlsIdentity = new EffectiveIdentity
-                {
-                    Username = rlsUser,
-                    Roles = { "UserRole" },
-                    Datasets = { report.DatasetId }
-                };
-
                 var tokenRequest = new GenerateTokenRequestV2
                 {
                     Reports = { new GenerateTokenRequestV2Report(report.Id) },
                     Datasets = { new GenerateTokenRequestV2Dataset(report.DatasetId) },
-                    TargetWorkspaces = { new GenerateTokenRequestV2TargetWorkspace(Guid.Parse(_powerBiOptions.WorkspaceId)) },
-                    Identities = { rlsIdentity }
+                    TargetWorkspaces = { new GenerateTokenRequestV2TargetWorkspace(Guid.Parse(_powerBiOptions.WorkspaceId)) }
+                    // Identities property is removed as we are not using RLS.
                 };
                 // Generate embed token
                 var embedTokenResponse = await client.EmbedToken.GenerateTokenAsync(tokenRequest);

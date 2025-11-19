@@ -1,7 +1,6 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using Azure.Identity;
 using Azure.Core;
 using Microsoft.Azure.Functions.Worker;
@@ -32,28 +31,50 @@ namespace HaloPowerBiEmbed.Api
         {
             try
             {
+                _logger.LogInformation("PowerBiOptions: TenantId={TenantId}, ClientId={ClientId}, ClientSecretPresent={ClientSecretPresent}, WorkspaceId={WorkspaceId}, ReportId={ReportId}",
+                    _powerBiOptions.TenantId,
+                    _powerBiOptions.ClientId,
+                    !string.IsNullOrEmpty(_powerBiOptions.ClientSecret) ? "Yes" : "No", // Log presence, not the secret itself
+                    _powerBiOptions.WorkspaceId,
+                    _powerBiOptions.ReportId);
+
+                var workspaceId = Guid.Parse(_powerBiOptions.WorkspaceId);
+                var reportId = Guid.Parse(_powerBiOptions.ReportId);
+
                 // Authenticate with Azure AD
                 var credential = new ClientSecretCredential(_powerBiOptions.TenantId, _powerBiOptions.ClientId, _powerBiOptions.ClientSecret);
                 var accessToken = await credential.GetTokenAsync(new TokenRequestContext(new[] { PowerBiScope }));
+
                 var tokenCredentials = new TokenCredentials(accessToken.Token, "Bearer");
 
-                // Instantiate the Power BI client, providing both the API endpoint and the credential.
-                using var client = new PowerBIClient(tokenCredentials) { BaseUri = new Uri("https://api.powerbi.com/") };
-                // Retrieve report
-                var reportResponse = await client.Reports.GetReportInGroupAsync(Guid.Parse(_powerBiOptions.WorkspaceId), Guid.Parse(_powerBiOptions.ReportId));
-                var report = reportResponse;
+                using var client = new PowerBIClient(new Uri("https://api.powerbi.com/"), tokenCredentials);
+                var report = await client.Reports.GetReportInGroupAsync(workspaceId, reportId);
 
+                if (report == null)
+                {
+                    _logger.LogError("Report with ID '{ReportId}' not found in workspace '{WorkspaceId}'. Check IDs and permissions.", _powerBiOptions.ReportId, _powerBiOptions.WorkspaceId);
+                    throw new InvalidOperationException($"Report '{_powerBiOptions.ReportId}' not found in workspace '{_powerBiOptions.WorkspaceId}'. Please verify the ReportId, WorkspaceId, and the Azure AD application's permissions.");
+                }
+
+                // Create the token request for the report
                 var tokenRequest = new GenerateTokenRequestV2
                 {
-                    Reports = { new GenerateTokenRequestV2Report(report.Id) },
-                    Datasets = { new GenerateTokenRequestV2Dataset(report.DatasetId) },
-                    TargetWorkspaces = { new GenerateTokenRequestV2TargetWorkspace(Guid.Parse(_powerBiOptions.WorkspaceId)) }
-                    // Identities property is removed as we are not using RLS.
+                    Reports = new List<GenerateTokenRequestV2Report> { new(report.Id) },
+                    TargetWorkspaces = new List<GenerateTokenRequestV2TargetWorkspace> { new(workspaceId) },
+                    Datasets = new List<GenerateTokenRequestV2Dataset>()
                 };
-                // Generate embed token
-                var embedTokenResponse = await client.EmbedToken.GenerateTokenAsync(tokenRequest);
-                var embedToken = embedTokenResponse;
+ 
+                // *** FIX ***
+                // Only add the dataset if the report has one.
+                // Paginated reports (RDL) will not have a DatasetId here and will cause a NullReferenceException.
+                if (!string.IsNullOrEmpty(report.DatasetId))
+                {
+                    tokenRequest.Datasets.Add(new GenerateTokenRequestV2Dataset(report.DatasetId));
+                }
 
+                // Generate embed token
+                var embedToken = await client.EmbedToken.GenerateTokenAsync(tokenRequest);
+                
                 // Return JSON
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new

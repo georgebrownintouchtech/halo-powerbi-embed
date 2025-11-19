@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'self' https://*.powerbi.com; object-src 'self';">
     <title>Halo Embedded Report</title>
     <style>
         html, body, #reportContainer {
@@ -19,39 +20,48 @@
             box-sizing: border-box;
         }
     </style>
-</head>
-<body>
-    <div id="reportContainer">
-        <p>Loading Report...</p>
-    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.22.1/dist/powerbi.min.js"></script>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/powerbi-client/2.22.1/powerbi.min.js"></script>
+    
     <script>
-        // Get a reference to the container and the Power BI client library objects.
-        const reportContainer = document.getElementById('reportContainer');
-        const models = window['powerbi-models'];
-        const powerbi = window.powerbi;
-
         async function embedReport() {
+            const reportContainer = document.getElementById('reportContainer');
+            
+            // 1. Validate Library Loading
+            if (typeof window.powerbi === 'undefined') {
+                console.error("Power BI client library not loaded.");
+                reportContainer.innerHTML = `<p><strong>Error:</strong> Power BI library failed to load.</p>`;
+                return;
+            }
+
             try {
-                // Get embed details from your backend.
-                const backendApiUrl = `/api/GetEmbedToken`;
+                // *** FIXED NAMESPACES ***
+                const powerbi = window.powerbi;              // The Service (for embedding)
+                const models = window['powerbi-client'].models; // The Models (for Enums like TokenType)
+                
+                if (!models) {
+                    throw new Error("Power BI Models not found. Library might be corrupted.");
+                }
+
+                // 2. Get embed details from your backend
+                const backendApiUrl = `/api/GetEmbedToken`; 
                 const response = await fetch(backendApiUrl);
+                
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(`Backend service error. Status: ${response.status}. Message: ${errorText}`);
                 }
+                
                 const embedDetails = await response.json();
+                console.log('Embed Details from API:', embedDetails);
 
-                // Create the configuration object for embedding.
+                // 3. Create the configuration object
                 const embedConfig = {
                     type: 'report',
                     id: embedDetails.reportId,
                     embedUrl: embedDetails.embedUrl,
                     accessToken: embedDetails.embedToken,
-                    // Use 'models.TokenType.Embed' for "App Owns Data" scenarios.
-                    tokenType: models.TokenType.Embed,
+                    tokenType: models.TokenType.Embed, // Now this will work!
                     settings: {
                         panes: {
                             filters: { expanded: false, visible: true },
@@ -60,20 +70,30 @@
                     }
                 };
 
-                // Clear the "Loading Report..." message before embedding.
-                reportContainer.innerHTML = '';
+                // 4. Embed the report
+                reportContainer.innerHTML = ''; 
+                const report = powerbi.embed(reportContainer, embedConfig);
 
-                // Embed the report.
-                powerbi.embed(reportContainer, embedConfig);
+                // 5. Events
+                report.on('loaded', function() { console.log("Report loaded."); });
+                report.on('rendered', function() { console.log("Report rendered."); });
+                report.on('error', function(event) {
+                    console.error("Power BI embedding error:", event.detail);
+                    reportContainer.innerHTML = `<p><strong>Power BI Service Error:</strong> ${event.detail.message}</p>`;
+                });
 
             } catch (error) {
-                console.error(error);
-                reportContainer.innerHTML = `<p><strong>Error:</strong> Could not embed report. ${error.message}</p>`;
+                console.error("Application Error:", error);
+                reportContainer.innerHTML = `<p><strong>Error:</strong> ${error.message}</p>`;
             }
         }
-        
-        // Use the 'load' event to ensure all scripts are ready before running.
+
         window.addEventListener('load', embedReport);
     </script>
+</head>
+<body>
+    <div id="reportContainer">
+        <p>Loading Report...</p>
+    </div>
 </body>
 </html>

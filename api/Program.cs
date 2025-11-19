@@ -3,23 +3,21 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()
-    .ConfigureServices(services =>
+    // Use the overload that provides HostBuilderContext to access IConfiguration
+    .ConfigureServices((context, services) => // This is the correct overload to use.
     {
         // Bind the "PowerBi" configuration section to the PowerBiOptions class
         services.AddOptions<PowerBiOptions>()
-            .Configure<IHostEnvironment>((settings, environment) =>
-            {
-                new ConfigurationBuilder()
-                    .SetBasePath(environment.ContentRootPath)
-                    .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
-                    .AddEnvironmentVariables()
-                    .Build()
-                    .GetSection("Values:PowerBi") // In Azure, settings are flat. In local.settings.json, they are under "Values".
-                    .Bind(settings);
-            });
+            // Bind directly to the IConfiguration provided by the HostBuilderContext.
+            // The Functions host typically loads local.settings.json automatically.
+            .Bind(context.Configuration.GetSection("PowerBi"))
+            // Enable validation for PowerBiOptions, chained to the same options builder.
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
     })
     .ConfigureLogging(logging =>
     {
